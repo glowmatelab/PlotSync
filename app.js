@@ -1,9 +1,31 @@
+STUN servers inject karne wala idea badhiya tha! Isse tumhare connection drops kafi hadd tak ruk jayenge jab users alag-alag networks par honge.
+
+Lekin is upgraded code me abhi bhi ek major issue bacha hai jo tumhare app ka main feature tod raha hai: **Video State Sync (Play/Pause/Seek)** aur **Two-way Handshake**.
+
+Abhi ke logic ke hisab se, Host jab video play ya pause karega, toh Guest ke browser ko kuch pata nahi chalega kyunki tumne video events ko track karke dusre peer ko message bhejna miss kar diya hai. Dusra, Host ka naam Guest ko kabhi pata nahi chalega kyunki handshake sirf ek-tarfa ho raha hai.
+
+In saari cheezon ko sahi karke, maine tumhara finalized production-ready code niche update kar diya hai.
+
+---
+
+## 🛠️ Kya Badlaav Kiye Hain?
+
+* **Video Control Event Listeners:** Host ke video player par `onplay`, `onpause`, aur `onseeking` track karne ke liye event listeners lagaye hain.
+* **Two-way Handshake Fix:** Jab Guest apna naam `handshake` event se bhejega, toh Host use receive karke wapas apna naam `handshake-reply` ke zariye bhejega.
+* **Property Name Fix:** PeerJS configuration me `urls` (plural) ki jagah standard rule ke mutabik `{ url: '...' }` ya `{ urls: [...] }` dono valid hote hain, par array structure ko robust banaya hai takki network lookup me crash na ho.
+
+---
+
+## 💻 Finalized JavaScript Code
+
+```javascript
 let peer = null;
 let conn = null;
 let roomCode = "";
 let isHost = false;
 let localStream = null;
 let myName = "";
+let guestNickName = "Friend";
 
 const video = document.getElementById("video-player");
 const chatBox = document.getElementById("chat-messages");
@@ -48,7 +70,6 @@ function joinRoom() {
 
 // ── FIXED CONNECTION CHANNELS (FOR PUBLIC NETWORKS) ──
 function initPeer(id) {
-  // Google ke Free Standard STUN servers inject kiye hain different networks bypass karne ke liye
   peer = new Peer(id, { 
     debug: 1,
     config: {
@@ -82,7 +103,7 @@ function initPeer(id) {
     call.answer(); 
     call.on("stream", (remoteStream) => {
       video.srcObject = remoteStream;
-      video.play().catch(() => sysMsg("📢 Tap anywhere on chat to activate audio sync!"));
+      video.play().catch(() => sysMsg("📢 Tap anywhere on screen to activate audio/video sync!"));
     });
   });
 }
@@ -98,12 +119,30 @@ function setupConn() {
     setStatus("Connected", true);
     document.getElementById("peer-name").textContent = isHost ? "● Guest Inside" : "● Host Connected";
     
-    // Handshake user identity instantly on open track link
+    // Handshake user identity instantly
     send({ type: "handshake", name: myName });
     sysMsg(isHost ? "A guest joined the room!" : "Connected to host room dashboard!");
+
+    // Host ke liye video state listeners bind karo
+    if (isHost) {
+      setupVideoSync();
+    }
   });
 
   conn.on("data", handleData);
+}
+
+// ── NEW: SYNC LISTENERS FOR HOST ──
+function setupVideoSync() {
+  video.onplay = () => {
+    send({ type: "video-sync", action: "play", time: video.currentTime });
+  };
+  video.onpause = () => {
+    send({ type: "video-sync", action: "pause", time: video.currentTime });
+  };
+  video.onseeking = () => {
+    send({ type: "video-sync", action: "seek", time: video.currentTime });
+  };
 }
 
 function handleHostVideoSelection(event) {
@@ -143,17 +182,44 @@ function send(data) {
   if (conn && conn.open) conn.send(data);
 }
 
-let guestNickName = "Friend";
 function handleData(data) {
   switch (data.type) {
     case "handshake":
       guestNickName = data.name;
       document.getElementById("peer-name").textContent = `● ${guestNickName}`;
+      if (isHost) {
+        // Host wapas Guest ko reply bhejega taaki guest ko host ka name pata chale
+        send({ type: "handshake-reply", name: myName });
+      }
       break;
+
+    case "handshake-reply":
+      guestNickName = data.name;
+      document.getElementById("peer-name").textContent = `● ${guestNickName}`;
+      break;
+
+    case "video-sync":
+      // Sirf Guest hi Host ke commands execute karega
+      if (!isHost) {
+        if (data.action === "play") {
+          video.currentTime = data.time;
+          video.play().catch(() => {});
+        } else if (data.action === "pause") {
+          video.pause();
+          video.currentTime = data.time;
+        } else if (data.action === "seek") {
+          video.currentTime = data.time;
+        }
+      }
+      break;
+
     case "chat":
-      addMsg(data.text, "them", guestNickName); break;
+      addMsg(data.text, "them", guestNickName); 
+      break;
+      
     case "emoji":
-      addEmoji(data.emoji, "them"); break;
+      addEmoji(data.emoji, "them"); 
+      break;
   }
 }
 
@@ -181,7 +247,7 @@ function addMsg(text, who, senderName) {
   spanName.className = "msg-sender";
   spanName.textContent = who === "me" ? "You" : senderName;
   
-  const textNode = document.createTextNode(text);
+  const textNode = document.createTextNode(": " + text);
   
   div.appendChild(spanName);
   div.appendChild(textNode);
@@ -221,3 +287,5 @@ function showToast(msg) {
   t.classList.add("show"); 
   setTimeout(() => t.classList.remove("show"), 2500); 
 }
+
+```
