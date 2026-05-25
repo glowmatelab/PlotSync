@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PlotSync</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+  <div id="name-screen" class="screen active">
+    <div class="lobby-box">
+      <div class="logo">
+        <span class="logo-icon">&#9654;</span>
+        <h1>PlotSync</h1> <!-- Yahan naam badla -->
+      </div>
+      <p class="tagline">Enter your nickname to get started</p>
+      
+      <div class="input-group">
+        <input type="text" id="username-input" placeholder="Your Name..." maxlength="15" autocomplete="off" />
+      </div>
+      <button class="btn primary" onclick="saveUsername()">Continue</button>
+      <p id="name-error" class="error-msg"></p>
+    </div>
+  </div>
+
+  <div id="lobby" class="screen">
+    <div class="lobby-box">
+      <div class="logo">
+        <span class="logo-icon">&#9654;</span>
+        <h1>PlotSync</h1> <!-- Yahan naam badla -->
+      </div>
+      <p class="tagline" id="welcome-msg">Welcome!</p>
+
+      <div class="btn-group">
+        <button class="btn primary" onclick="createRoom()">
+          &#43; Create Room (Host)
+        </button>
+        <div class="divider">or</div>
+        <input type="text" id="room-input" placeholder="Enter 6-Digit Code" maxlength="6" />
+        <button class="btn secondary" onclick="joinRoom()">
+          Join Room (Guest)
+        </button>
+      </div>
+      <p id="lobby-error" class="error-msg"></p>
+    </div>
+  </div>
+
+  <div id="watch-screen" class="screen">
+
+    <div class="topbar">
+      <div class="topbar-left">
+        <span class="logo-small">&#9654; PlotSync</span> <!-- Yahan naam badla -->
+        <span id="room-badge" class="room-badge"></span>
+      </div>
+      <div class="topbar-right">
+        <span id="conn-status" class="status disconnected">&#9679; Waiting...</span>
+        <button class="btn-icon-action" onclick="copyRoomCode()" title="Copy Link">&#128279;</button>
+      </div>
+    </div>
+
+    <div class="main-layout">
+
+      <div class="video-side">
+        <div class="part-bar" id="host-file-bar" style="display: none;">
+          <div class="upload-container">
+            <span class="part-label">📁 Movie:</span>
+            <input type="file" id="local-video-input" accept="video/mp4, video/webm" class="local-file-btn" onchange="handleHostVideoSelection(event)" />
+          </div>
+          <button id="stream-btn" class="stream-action-btn" onclick="startMovieStreaming()" disabled>📺 Start Stream</button>
+        </div>
+
+        <div class="video-wrapper">
+          <video id="video-player" playsinline controls></video>
+        </div>
+      </div>
+
+      <div class="chat-side">
+        <div class="chat-header">
+          <span class="chat-title">Live Chat</span>
+          <span id="peer-name" class="peer-name"></span>
+        </div>
+
+        <div id="chat-messages" class="chat-messages"></div>
+
+        <div class="emoji-bar">
+          <button class="emoji-chip" onclick="sendEmoji('&#128514;')">&#128514;</button>
+          <button class="emoji-chip" onclick="sendEmoji('&#128525;')">&#128525;</button>
+          <button class="emoji-chip" onclick="sendEmoji('&#128561;')">&#128561;</button>
+          <button class="emoji-chip" onclick="sendEmoji('&#128293;')">&#128293;</button>
+          <button class="emoji-chip" onclick="sendEmoji('&#10084;')">&#10084;</button>
+        </div>
+
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="Type a message..." onkeydown="chatKeydown(event)" autocomplete="off" />
+          <button class="btn-send" onclick="sendChat()">&#9658;</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
