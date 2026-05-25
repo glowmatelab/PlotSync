@@ -22,7 +22,11 @@ function saveUsername() {
   myName = nameInp;
   document.getElementById("name-screen").classList.remove("active");
   document.getElementById("lobby").classList.add("active");
-  document.getElementById("welcome-msg").textContent = `Logged in as: ${myName}`;
+  
+  const welcomeMsg = document.getElementById("welcome-msg");
+  if (welcomeMsg) {
+    welcomeMsg.textContent = `Logged in as: ${myName}`;
+  }
 }
 
 function createRoom() {
@@ -42,8 +46,21 @@ function joinRoom() {
   initPeer("guest_" + Math.random().toString(36).substr(2, 5));
 }
 
+// ── FIXED CONNECTION CHANNELS (FOR PUBLIC NETWORKS) ──
 function initPeer(id) {
-  peer = new Peer(id, { debug: 0 });
+  // Google ke Free Standard STUN servers inject kiye hain different networks bypass karne ke liye
+  peer = new Peer(id, { 
+    debug: 1,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' }
+      ]
+    }
+  });
 
   peer.on("open", () => {
     showWatchScreen();
