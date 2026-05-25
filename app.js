@@ -2,15 +2,14 @@ let peer = null;
 let conn = null;
 let roomCode = "";
 let isHost = false;
-let localStream = null;
 let myName = "";
+let isSyncing = false;
 
 const video = document.getElementById("video-player");
 const chatBox = document.getElementById("chat-messages");
 const chatInput = document.getElementById("chat-input");
 const connStatus = document.getElementById("conn-status");
 const roomBadge = document.getElementById("room-badge");
-const streamBtn = document.getElementById("stream-btn");
 
 // STEP 1 NAME LOGIC
 function saveUsername() {
@@ -22,7 +21,11 @@ function saveUsername() {
   myName = nameInp;
   document.getElementById("name-screen").classList.remove("active");
   document.getElementById("lobby").classList.add("active");
-  document.getElementById("welcome-msg").textContent = `Logged in as: ${myName}`;
+  
+  const welcomeMsg = document.getElementById("welcome-msg");
+  if (welcomeMsg) {
+    welcomeMsg.textContent = `Logged in as: ${myName}`;
+  }
 }
 
 function createRoom() {
@@ -42,51 +45,80 @@ function joinRoom() {
   initPeer("guest_" + Math.random().toString(36).substr(2, 5));
 }
 
+// ── BACKEND PORT ROUTING FIX ──
 function initPeer(id) {
-  peer = new Peer(id, { debug: 0 });
+  // PeerJS default cloud ko completely custom servers aur public cloud bridges se switch kiya hai
+  peer = new Peer(id, {
+    debug: 2,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.services.mozilla.com' }
+      ]
+    }
+  });
 
-  peer.on("open", () => {
+  peer.on("open", (openedId) => {
+    console.log("Peer opened with ID:", openedId);
     showWatchScreen();
+    document.getElementById("host-file-bar").style.display = "flex";
+    
     if (isHost) {
-      document.getElementById("host-file-bar").style.display = "flex";
       setStatus("Waiting for guest...", false);
-      sysMsg("Room initialized! Share the code above with your friend.");
+      sysMsg("Room ready! Share code: " + roomCode);
     } else {
-      connectToHost();
+      setStatus("Connecting to Host...", false);
+      // Chhota sa delay taaki host server register ho jaye properly
+      setTimeout(() => { connectToHost(); }, 800);
     }
   });
 
   peer.on("connection", (c) => {
+    console.log("Incoming connection from guest...");
     conn = c;
     setupConn();
   });
 
-  peer.on("call", (call) => {
-    call.answer(); 
-    call.on("stream", (remoteStream) => {
-      video.srcObject = remoteStream;
-      video.play().catch(() => sysMsg("📢 Tap anywhere on chat to activate audio sync!"));
-    });
+  peer.on("error", (err) => {
+    console.error("PeerJS Core Error:", err);
+    if (err.type === 'peer-unavailable') {
+      sysMsg("⚠️ Room Code nahi mila. Check karo Host online hai ya nahi.");
+    } else {
+      sysMsg("⚠️ Connection network drop. Re-trying...");
+    }
   });
 }
 
 function connectToHost() {
-  setStatus("Connecting...", false);
-  conn = peer.connect(roomCode, { reliable: true });
+  if (!peer) return;
+  console.log("Attempting P2P handshake with room:", roomCode);
+  conn = peer.connect(roomCode, { 
+    reliable: true 
+  });
   setupConn();
 }
 
 function setupConn() {
+  if (!conn) return;
+
   conn.on("open", () => {
+    console.log("P2P Data Channel securely established!");
     setStatus("Connected", true);
     document.getElementById("peer-name").textContent = isHost ? "● Guest Inside" : "● Host Connected";
     
-    // Handshake user identity instantly on open track link
     send({ type: "handshake", name: myName });
-    sysMsg(isHost ? "A guest joined the room!" : "Connected to host room dashboard!");
+    sysMsg("💥 Connected! Ab dono local file select karke watch party shuru karo!");
+    
+    setupVideoSync();
   });
 
   conn.on("data", handleData);
+  
+  conn.on("close", () => {
+    setStatus("Disconnected", false);
+    sysMsg("⚠️ Friend left the room.");
+  });
 }
 
 function handleHostVideoSelection(event) {
@@ -94,36 +126,31 @@ function handleHostVideoSelection(event) {
   if (!file) return;
 
   video.src = URL.createObjectURL(file);
-  video.srcObject = null; 
   video.load();
-  
-  sysMsg(`Selected localized media asset. Ready to fire streaming.`);
-  streamBtn.disabled = false; 
+  sysMsg(`🎬 Movie asset loaded locally.`);
 }
 
-function startMovieStreaming() {
-  if (!video.src && !video.captureStream) return;
+function setupVideoSync() {
+  video.onplay = () => {
+    if (isSyncing) return;
+    send({ type: "media-play", time: video.currentTime });
+  };
 
-  try {
-    if (video.captureStream) {
-      localStream = video.captureStream();
-    } else if (video.mozCaptureStream) {
-      localStream = video.mozCaptureStream();
-    }
+  video.onpause = () => {
+    if (isSyncing) return;
+    send({ type: "media-pause" });
+  };
 
-    if (localStream && conn && conn.peer) {
-      peer.call(conn.peer, localStream);
-      sysMsg("📺 Movie pipeline active! Tap play to synchronize.");
-      video.play();
-    }
-  } catch (err) {
-    console.error(err);
-    sysMsg("⚠️ Media Capture restrictions hit on your current browser context.");
-  }
+  video.onseeking = () => {
+    if (isSyncing) return;
+    send({ type: "media-seek", time: video.currentTime });
+  };
 }
 
 function send(data) {
-  if (conn && conn.open) conn.send(data);
+  if (conn && conn.open) {
+    conn.send(data);
+  }
 }
 
 let guestNickName = "Friend";
@@ -134,9 +161,27 @@ function handleData(data) {
       document.getElementById("peer-name").textContent = `● ${guestNickName}`;
       break;
     case "chat":
-      addMsg(data.text, "them", guestNickName); break;
+      addMsg(data.text, "them", guestNickName); 
+      break;
     case "emoji":
-      addEmoji(data.emoji, "them"); break;
+      addEmoji(data.emoji, "them"); 
+      break;
+    case "media-play":
+      isSyncing = true;
+      video.currentTime = data.time;
+      video.play().catch(() => sysMsg("📢 Screen par ek baar tap karo audio sync ke liye!"));
+      setTimeout(() => { isSyncing = false; }, 300);
+      break;
+    case "media-pause":
+      isSyncing = true;
+      video.pause();
+      setTimeout(() => { isSyncing = false; }, 300);
+      break;
+    case "media-seek":
+      isSyncing = true;
+      video.currentTime = data.time;
+      setTimeout(() => { isSyncing = false; }, 300);
+      break;
   }
 }
 
@@ -159,16 +204,12 @@ function sendEmoji(emoji) { addEmoji(emoji, "me"); send({ type: "emoji", emoji }
 function addMsg(text, who, senderName) {
   const div = document.createElement("div"); 
   div.className = "msg " + who;
-  
   const spanName = document.createElement("span");
   spanName.className = "msg-sender";
   spanName.textContent = who === "me" ? "You" : senderName;
-  
   const textNode = document.createTextNode(text);
-  
   div.appendChild(spanName);
   div.appendChild(textNode);
-  
   chatBox.appendChild(div); 
   chatBox.scrollTop = chatBox.scrollHeight;
 }
